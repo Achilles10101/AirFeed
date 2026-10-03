@@ -56,4 +56,13 @@ jobs:
           if ($all -notmatch "listened for again: 0 times") { Write-Host '::error::connection reported broken on loopback'; exit 1 }
           if ($all -notmatch "laptop's clock:\n  none") { Write-Host '::error::stalls reported on loopback'; exit 1 }
           if ($all -notmatch 'Frames lost for good: 0 ') { Write-Host '::error::frames reported lost on loopback'; exit 1 }
+          # The latency clock must really be drawn: count bright pixels where its digits belong.
+          Add-Type -AssemblyName System.Drawing
+          $shot = Get-ChildItem windows\captures\latency-*-2.png | Select-Object -First 1
+          $bmp = New-Object System.Drawing.Bitmap $shot.FullName
+          $bright = 0
+          for ($y = 110; $y -lt 340; $y += 4) { for ($x = 60; $x -lt 920; $x += 4) { $c = $bmp.GetPixel($x, $y); if ($c.R -gt 200 -and $c.G -gt 200 -and $c.B -gt 200) { $bright++ } } }
+          $bmp.Dispose()
+          Write-Host "::notice::clock digits: $bright bright samples in the clock window"
+          if ($bright -lt 200) { Write-Host '::error::the latency clock is blank in the screenshot'; exit 1 }
           exit 0
