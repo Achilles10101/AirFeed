@@ -311,6 +311,11 @@ int main(int argc, char **argv) {
     }
     int n_displays = 0;
     SDL_DisplayID *ids = SDL_GetDisplays(&n_displays);
+    for (int i = 0; i < n_displays; i++) {
+        SDL_Rect r = {0};
+        SDL_GetDisplayBounds(ids[i], &r);
+        logf_("display %d: %s, %d x %d", i + 1, SDL_GetDisplayName(ids[i]), r.w, r.h);
+    }
     if (display < 0) display = n_displays > 1 ? 2 : 0;
     if (display > n_displays) {
         logf_("there is no display %d, only %d", display, n_displays);
@@ -336,7 +341,9 @@ int main(int argc, char **argv) {
     int vsync = SDL_SetRenderVSync(ren, 1);
     if (display) SDL_HideCursor();
     SDL_DisableScreenSaver(); // also keeps the display from sleeping
-    logf_("output: %s, renderer %s%s", display ? "full screen" : "window", SDL_GetRendererName(ren), vsync ? "" : ", NO VSYNC");
+    SDL_RaiseWindow(win);
+    if (display) logf_("output: full screen on display %d, renderer %s%s", display, SDL_GetRendererName(ren), vsync ? "" : ", NO VSYNC");
+    else logf_("output: a window on this screen, renderer %s%s", SDL_GetRendererName(ren), vsync ? "" : ", NO VSYNC");
 
     lock = SDL_CreateMutex();
     latest = av_frame_alloc();
