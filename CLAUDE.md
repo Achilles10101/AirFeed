@@ -44,6 +44,10 @@ SRT recovers outages by delivering late. Seven 300 ms outages cost only three pa
 
 This Mac. Homebrew ffmpeg has no SRT support; the small srt package is installed and provides srt-live-transmit. Xcode is not installed, only the Command Line Tools, so no iPhone builds are possible yet. Git has no user name or email configured.
 
+WINDOWS TEST RIG
+
+windows/airfeed.ps1 (started with airfeed.cmd) does setup and one guided test of about five minutes: test pattern, capture, latency clock with automatic screenshots, and a spoken walk test through four positions in the hall. It is a test rig built on ffmpeg and ffplay with no safety gate, not the production receiver. A GitHub Actions job on a Windows runner checks that it parses, that setup runs and that a quick guided test receives a synthetic SRT stream. Nothing about it has run on the real laptop.
+
 ASSUMPTIONS DISPROVEN
 
 None yet.

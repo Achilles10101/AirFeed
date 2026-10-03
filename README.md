@@ -10,9 +10,9 @@ What is verified so far, all on the Mac with a synthetic stream: the capture scr
 
 Installed: Homebrew `ffmpeg` (no SRT support in this build) and `srt` (adds `srt-live-transmit`). Nothing else is needed for the experiments.
 
-## Experiments 1 and 2: what the Blackmagic Camera app sends, and how late
+## Mac alternative: what the Blackmagic Camera app sends, and how late
 
-Needs the iPhone and this Mac on the same WiFi. About 15 minutes.
+Same questions as the Windows test, answered on the Mac, with SRT loss statistics the Windows rig cannot give. Needs the iPhone and this Mac on the same WiFi. About 15 minutes.
 
 1. On the Mac, in this folder: `experiments/capture.sh`. It prints the address it listens on. If that is not `192.168.0.207:9000`, edit the `<url>` in `experiments/airfeed.xml` first.
 2. AirDrop `experiments/airfeed.xml` to the iPhone and save it to Files.
@@ -28,14 +28,37 @@ Then tell Claude: iPhone model, app version, anything the app asked for or compl
 
 Captures land in `experiments/captures/` (not committed).
 
-## Experiment 3: Windows HDMI into the ATEM
+## Windows laptop: all hardware tests in one guided run
 
-Needs the Windows laptop and the ATEM. About 20 minutes. Windows menu names below are from memory and may differ slightly.
+`windows/airfeed.ps1` is a test rig, not the production receiver. It has no safety gate, so do not put it on a live programme.
 
-1. Copy `experiments/testpattern.html` to the laptop.
-2. Connect the laptop's HDMI output to an ATEM input.
-3. Windows Settings, System, Display: select the ATEM display, choose "Extend these displays", resolution 1920 x 1080, scale 100%. Under Advanced display set the refresh rate to match the ATEM's video standard. Turn HDR and Night light off.
-4. Open `testpattern.html` in Edge or Chrome, drag it to the ATEM display, press F11.
-5. Note the Hz figure shown at the bottom of the pattern, and whether the ATEM showed the picture straight away.
-6. Put that input on programme and record about 15 seconds on the ATEM.
-7. Copy the recording to the Mac and tell Claude where it is.
+### Setup, once (about 10 minutes)
+
+1. Download https://github.com/Achilles10101/AirFeed/archive/refs/heads/main.zip on the laptop and unzip it.
+2. Connect the laptop to the router by Ethernet.
+3. Double-click `windows\airfeed.cmd` and choose 1. It installs ffmpeg with winget if needed, opens UDP port 9000 to your local network (Windows asks for permission), and writes `windows\airfeed-windows.xml` with the laptop's address.
+4. Get that XML onto the iPhone (email, iCloud Drive or OneDrive) and save it in Files.
+5. In Blackmagic Camera (3.2 or later): settings, streaming, import the file as a custom service. The menu names are unverified. Choose service "AirFeed Windows", profile "AirFeed low latency", and set the frame rate to the ATEM's video standard.
+6. Connect the laptop's HDMI output to an ATEM input and put that input on programme. In Windows display settings choose Extend, 1920 x 1080, scale 100%, refresh rate equal to the ATEM's video standard, HDR and Night light off.
+7. Turn the laptop's volume up. The test speaks its prompts.
+
+### Guided test (about 5 minutes)
+
+Choose 2 in the menu. The laptop then tells you what to do, on screen and out loud:
+
+| Time | What happens | What you do |
+|---|---|---|
+| start | asks for the ATEM recording | start recording on the ATEM, press Enter |
+| 15 s | test pattern on the ATEM output | nothing |
+| until connected | waits for the iPhone | start the stream in Blackmagic Camera |
+| 25 s | clock on the laptop screen, three automatic screenshots | point the iPhone at the clock |
+| 4 x 45 s | walk test | walk to each position when told: near the router, middle of the hall, far end, worst spot |
+| 15 s | return | walk back, then stop the stream and the ATEM recording |
+
+It then prints a report and saves everything in `windows\captures`. Send back `report-*.txt`, the three `latency-*.png` screenshots and the ATEM recording.
+
+What each part answers: the pattern on the ATEM recording gives colour range. The report gives codec, frame rate and keyframe spacing, plus stalls and lost frames per position. The screenshots give latency (clock minus filmed clock), which includes a small relay inside the laptop, so treat it as an upper bound. The ATEM recording shows what a viewer would have seen.
+
+Positions, phase lengths, port and SRT buffer are knobs at the top of the script. `airfeed.cmd -Run test -Quick` does a dry run with 3 second phases.
+
+Verified by an automated check on a GitHub Windows machine with a synthetic stream: the script parses, setup runs, and the guided test receives SRT and produces its report. Not verified anywhere: the real laptop, the iPhone app, the pattern and video actually appearing on the ATEM display, the spoken prompts, and the winget install.

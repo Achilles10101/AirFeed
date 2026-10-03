@@ -218,7 +218,7 @@ function Wait-Phase($seconds, $file, $shots) {
             }
         }
         if ($shots -and $now -ge $start + $shots[0]) {
-            Save-Screenshot (Join-Path $Captures ("latency-{0}-{1}.png" -f $script:Stamp, [int]$shots[0]))
+            Save-Screenshot (Join-Path $Captures ("latency-{0}-{1}.png" -f $script:Stamp, ++$script:ShotNo))
             $shots = @($shots | Select-Object -Skip 1)
         }
         if ($now -ge $start + $seconds) { break }
