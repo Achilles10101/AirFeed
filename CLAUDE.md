@@ -30,7 +30,7 @@ DECISIONS MADE (2026-10-03)
 
 Software only. No hardware decoders, wireless HDMI kits or docks. The receiver is the Windows laptop on Ethernet to the router, so only the iPhone is on WiFi. No audio travels over the stream; programme audio goes into the ATEM directly. When the feed is lost the receiver holds the last good frame for a short adjustable time, then shows black until a clean keyframe arrives.
 
-Camera candidates in order: Blackmagic Camera app over SRT, then Larix Broadcaster (tunable SRT latency, weaker camera control), then our own iPhone app. Nothing beyond experiments is to be built until I pick a direction after the latency result. The proposed receiver is a small custom one built on the FFmpeg libraries and SDL3 with a safety gate, proposed but not yet approved for production.
+Camera candidates in order: Blackmagic Camera app over SRT, then Larix Broadcaster (tunable SRT latency, weaker camera control), then our own iPhone app. Later on 2026-10-03 I asked for the Windows receiver to be started while the hardware tests run: build the base app, then pause and wait for the test results. The camera side is still undecided and nothing is to be built for it until I pick a direction after the latency result.
 
 FINDINGS SO FAR
 
@@ -50,10 +50,20 @@ WINDOWS TEST RIG
 
 windows/airfeed.ps1 (started with airfeed.cmd) does setup and one guided test: test pattern, capture, latency clock with automatic screenshots, then a free walk that ends on Enter. No sound; I asked for the spoken cues and fixed positions to be removed. The report lists every stall with its time of day, and the listener starts again by itself after a broken connection. It is a test rig built on ffmpeg and ffplay with no safety gate, not the production receiver. A GitHub Actions job on a Windows runner checks that it parses, that setup runs and that a quick guided test receives a synthetic SRT stream. The first version ran on the real laptop as far as importing its config into the app; no stream has arrived there yet.
 
+RECEIVER
+
+receiver/airfeed.c, one C file on libsrt, libavcodec and SDL3. It does its own small MPEG-TS parsing instead of using libavformat. Reasons: the gate needs to know exactly which TS packets belong to which frame, and as far as Claude recalls FFmpeg's MPEG-TS code (not measured here), libavformat adds a second frame of delay through its parser and without the parser splits frames above 200 KB.
+
+The gate has three lines of defence: a jump in SRT packet sequence numbers (31 bit wrap handled), a jump in the TS continuity counter, and the decoder's own damage flags. After any of them nothing is shown until the next H.264 IDR or HEVC IRAP frame. The lateness rule is a one frame mailbox between the receive thread and the display loop: frames are never queued, so a burst of late frames after an outage cannot add delay. The display loop presents on vsync, holds the last good frame for -hold ms (default 500), then draws black.
+
+Known limits, each marked in the code with a ponytail comment: one frame of delay because a frame is complete only when the next begins (could finish early on a PES length), 8 bit 4:2:0 only, software decoding, no recovery point or intra refresh support, PSI tables longer than one TS packet ignored, SRT messages must hold whole TS packets, one PES must hold one frame. A capture file from the guided test will show whether the Blackmagic app breaks any of these.
+
+receiver/test.sh is the check: a 20 s clip through real SRT with a lossy relay, every shown frame compared by MD5 with the clean original, H.264 and HEVC, clean, 5% random loss and 1.5 s outages. Zero damaged frames in every run. With all three defences switched off in a scratch copy the same check reported 24 damaged frames, so it does detect damage. It passes on this Mac and on a GitHub Windows runner against the Windows build (.github/workflows/receiver.yml, MSYS2 UCRT64), which also publishes the bundle as the artifact airfeed-receiver-windows (84 files, 126 MB). Nothing about the receiver has run on the real laptop, with the iPhone, or into the ATEM.
+
 ASSUMPTIONS DISPROVEN
 
 None yet.
 
 OPEN QUESTIONS
 
-What the Blackmagic Camera app really sends: codec, frame rate, keyframe spacing, whether it calls out or listens, how it reconnects, and above all its latency (experiments 1 and 2 in the README). Which iPhone model. The ATEM's video standard, and whether the mics use the ATEM's 3.5 mm jacks. How Windows HDMI arrives at the ATEM: colour range, refresh rate lock, HDCP (experiment 3). WiFi behaviour where the camera will stand, and whether the laptop runs for hours without interruptions.
+What the Blackmagic Camera app really sends: codec, frame rate, keyframe spacing, whether it calls out or listens, how it reconnects, and above all its latency (experiments 1 and 2 in the README). Which iPhone model. The ATEM's video standard, and whether the mics use the ATEM's 3.5 mm jacks. How Windows HDMI arrives at the ATEM: colour range, refresh rate lock, HDCP (experiment 3). WiFi behaviour where the camera will stand, and whether the laptop runs for hours without interruptions. For the receiver: whether the Blackmagic app's stream fits its assumptions (whole TS packets per SRT packet, one frame per PES, real keyframes, 8 bit), whether software decoding keeps up on the laptop, and how full screen on the second display behaves.
