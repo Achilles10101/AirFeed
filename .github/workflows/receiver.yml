@@ -31,7 +31,10 @@ jobs:
             mingw-w64-ucrt-x86_64-python
 
       - name: Build
-        run: make
+        run: |
+          make
+          objdump -p airfeed.exe | grep -i '^Subsystem'
+          objdump -p airfeed.exe | grep -qi 'Windows CUI' || { echo "::error::airfeed.exe is not a console program"; exit 1; }
 
       - name: Safety gate check
         run: |

@@ -3,7 +3,9 @@ PKGS = sdl3 libavcodec libavutil srt
 CFLAGS += -O2 -Wall $(shell pkg-config --cflags $(PKGS) 2>/dev/null || echo -I/opt/homebrew/include)
 LDLIBS += $(shell pkg-config --libs $(PKGS) 2>/dev/null || echo -L/opt/homebrew/lib -lSDL3 -lavcodec -lavutil -lsrt)
 ifeq ($(OS),Windows_NT)
-LDLIBS += -lws2_32
+# SDL's pkg-config asks for a windowed program, which has no console and so no status
+# lines. The receiver needs its console.
+LDLIBS := $(filter-out -mwindows,$(LDLIBS)) -lws2_32 -mconsole
 endif
 
 airfeed: airfeed.c
