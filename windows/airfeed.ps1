@@ -301,7 +301,6 @@ function Show-Clock($bounds) {
     $script:ClockFont = New-Object System.Drawing.Font 'Consolas', 110, ([System.Drawing.FontStyle]::Bold)
     $form.Add_Paint({
         param($sender, $e)
-        $script:ClockPaints++
         $e.Graphics.DrawString($script:ClockText, $script:ClockFont, [System.Drawing.Brushes]::White, 20, 20)
     })
     $form.Show()
@@ -382,7 +381,6 @@ Waiting up to $([int]($ConnectSeconds / 60)) minutes. Ctrl-C stops the test.
         $clock = Show-Clock $main.Bounds
         Say "Point the iPhone at the clock on the laptop and hold it still for $ClockSeconds seconds."
         $clockBytes = Wait-Phase $ClockSeconds @(($ClockSeconds * 0.5), ($ClockSeconds * 0.7), ($ClockSeconds * 0.9))
-        Write-Host "clock debug: painted $($script:ClockPaints) times, last text '$($script:ClockText)'"
         $clock.Close()
         $script:ClockForm = $null
 

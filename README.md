@@ -63,7 +63,7 @@ If the app cannot connect: on the iPhone, Settings, Privacy & Security, Local Ne
 
 Phase lengths, port, SRT buffer, bitrates and the stall threshold are knobs at the top of the script. `airfeed.cmd -Run test -Quick` does a dry run with 3 second phases.
 
-Verified by an automated check on a GitHub Windows machine with a synthetic stream: the script parses, setup runs, and the guided test receives SRT and produces its report. Not verified anywhere: the real laptop, the iPhone app accepting the config file, the pattern and video actually appearing on the ATEM display, restarting the listener after a broken connection, and the winget install.
+Verified by an automated check on a GitHub Windows machine with a synthetic stream: the script parses, setup runs, the guided test receives SRT and produces its report, and the clock digits appear in the screenshot (they were blank in the first run on the real laptop). Not verified anywhere: the real laptop, the iPhone app accepting the config file, the pattern and video actually appearing on the ATEM display, restarting the listener after a broken connection, and the winget install.
 
 ## Windows laptop: the receiver
 
