@@ -376,6 +376,8 @@ Waiting up to $([int]($ConnectSeconds / 60)) minutes. Ctrl-C stops the test.
         $clock = Show-Clock $main.Bounds
         Say "Point the iPhone at the clock on the laptop and hold it still for $ClockSeconds seconds."
         $clockBytes = Wait-Phase $ClockSeconds @(($ClockSeconds * 0.5), ($ClockSeconds * 0.7), ($ClockSeconds * 0.9))
+        $l = $script:ClockLabel
+        Write-Host "clock debug: text='$($l.Text)' size=$($l.Size) visible=$($l.Visible) font=$($l.Font) fore=$($l.ForeColor) back=$($l.BackColor) truthy=$([bool]$l) type=$($l.GetType().FullName) compat=$($l.UseCompatibleTextRendering) form=$($clock.GetType().FullName) client=$($clock.ClientSize) controls=$($clock.Controls.Count)"
         $clock.Close()
         $script:ClockLabel = $null
 
