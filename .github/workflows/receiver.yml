@@ -1,0 +1,62 @@
+# Builds receiver/airfeed.c for Windows, runs the safety gate check (receiver/test.sh) on
+# the Windows build, checks that the bundle starts without MSYS2 and that a window shows
+# video, then publishes the bundle as the artifact "airfeed-receiver-windows".
+# ponytail: the bundle carries every DLL of the MSYS2 FFmpeg package. Build FFmpeg with
+# only the H.264 and HEVC decoders if the size ever matters.
+name: Windows receiver
+on:
+  push:
+    paths: ['receiver/**', '.github/workflows/receiver.yml']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: msys2 {0}
+        working-directory: receiver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-srt
+            mingw-w64-ucrt-x86_64-sdl3
+            mingw-w64-ucrt-x86_64-python
+
+      - name: Build
+        run: make
+
+      - name: Safety gate check
+        run: |
+          PYTHON=python ./test.sh 2>&1 | tee test.out || fail=1
+          echo "::notice::$(grep -v Terminated test.out | tr '\n' '~' | sed 's/~/%0A/g')"
+          exit ${fail:-0}
+
+      - name: Bundle
+        run: |
+          mkdir dist
+          cp airfeed.exe dist/
+          ldd airfeed.exe | awk '$3 ~ /ucrt64/ {print $3}' | sort -u | xargs cp -t dist/
+          echo "::notice::bundle: $(ls dist | wc -l) files, $(du -sm dist | cut -f1) MB"
+
+      - name: Bundle starts on its own and shows video in a window
+        run: |
+          export PATH=/usr/bin:/c/Windows/System32
+          (timeout 14 ./dist/airfeed.exe -display 0 2> win.log || true) &
+          sleep 3
+          /ucrt64/bin/ffmpeg -v error -re -f lavfi -i testsrc2=s=1920x1080:r=50 -t 8 -c:v libx264 -preset veryfast -tune zerolatency -b:v 8M -g 50 -pix_fmt yuv420p -f mpegts "srt://127.0.0.1:9000?pkt_size=1316"
+          wait
+          echo "::notice::$(tr '\n' '~' < win.log | sed 's/~/%0A/g')"
+          grep -Eq 'LIVE +[1-9][0-9]* shown/s' win.log || { echo "::error::no video was shown"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airfeed-receiver-windows
+          path: receiver/dist
