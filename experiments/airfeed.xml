@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Experiment 1: Blackmagic Camera app, custom SRT service pointing at the Mac.
+     Schema taken from an unofficial blog (glyph.sh), not from Blackmagic. If the app
+     rejects this file, that is a finding: tell me what it says.
+     Change the address if capture.sh prints a different one. -->
+<streaming>
+    <service>
+        <name>AirFeed Mac</name>
+        <servers>
+            <server>
+                <name>Mac</name>
+                <url>srt://192.168.0.207:9000</url>
+            </server>
+        </servers>
+        <profiles>
+            <profile>
+                <name>AirFeed low latency</name>
+                <low-latency/>
+                <config resolution="HD">
+                    <bitrate>6000000</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+            </profile>
+            <profile>
+                <name>AirFeed standard</name>
+                <config resolution="HD">
+                    <bitrate>6000000</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+            </profile>
+        </profiles>
+    </service>
+</streaming>

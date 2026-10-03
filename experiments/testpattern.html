@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Experiment 3: open on the Windows laptop, on the HDMI output feeding the ATEM, press F11.
+     Rows, top to bottom:
+       1. 75% colour bars: white yellow cyan green magenta red blue black
+       2. grey steps, RGB 0 26 51 77 102 128 153 179 204 230 255
+       3. near black 0 2 4 6 8 12 16 24, then near white 231 239 243 247 249 251 253 255
+       4. a block that moves 32 px every display refresh, a frame counter, the measured refresh rate
+     A correct chain records RGB 0 as luma 16 and RGB 255 as luma 235, with every step distinct
+     and the block advancing exactly one slot per recorded frame. -->
+<meta charset="utf-8">
+<title>AirFeed test pattern</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+  const g = document.getElementById('c').getContext('2d', { alpha: false });
+  const grey = v => `rgb(${v},${v},${v})`;
+  function row(y, h, colours) {
+    const w = 1920 / colours.length;
+    colours.forEach((col, i) => { g.fillStyle = col; g.fillRect(Math.round(i * w), y, Math.ceil(w), h); });
+  }
+  row(0, 360, ['rgb(191,191,191)', 'rgb(191,191,0)', 'rgb(0,191,191)', 'rgb(0,191,0)',
+               'rgb(191,0,191)', 'rgb(191,0,0)', 'rgb(0,0,191)', 'rgb(0,0,0)']);
+  row(360, 240, [0, 26, 51, 77, 102, 128, 153, 179, 204, 230, 255].map(grey));
+  row(600, 240, [0, 2, 4, 6, 8, 12, 16, 24, 231, 239, 243, 247, 249, 251, 253, 255].map(grey));
+
+  let n = 0, last = performance.now(), hz = 60;
+  g.font = '80px monospace';
+  function frame(now) {
+    if (now > last) hz = hz * 0.95 + 1000 / (now - last) * 0.05;
+    last = now;
+    g.fillStyle = '#000'; g.fillRect(0, 840, 1920, 240);
+    g.fillStyle = '#fff'; g.fillRect(n * 32 % 1920, 840, 32, 120);
+    g.fillText(`frame ${n}   ${hz.toFixed(2)} Hz`, 40, 1050);
+    n++;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
