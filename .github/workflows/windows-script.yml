@@ -1,0 +1,55 @@
+# Checks windows/airfeed.ps1 on a real Windows machine: it parses in Windows PowerShell 5.1,
+# setup runs, and a quick run of the guided test receives a synthetic SRT stream and reports
+# on it. What the screen shows, the spoken prompts and the winget install path need the real
+# laptop and are not covered.
+name: Windows script check
+on:
+  push:
+    paths: ['windows/**', '.github/workflows/windows-script.yml']
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Script parses in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$pwd\windows\airfeed.ps1", [ref]$null, [ref]$errors) | Out-Null
+          foreach ($e in $errors) { Write-Host "::error::line $($e.Extent.StartLineNumber): $($e.Message)" }
+          if ($errors) { exit 1 }
+
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Setup step
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows\airfeed.ps1 -Run setup
+          if (-not (Test-Path windows\airfeed-windows.xml)) { Write-Host '::error::setup did not write the iPhone config'; exit 1 }
+          $url = ([xml](Get-Content windows\airfeed-windows.xml)).streaming.service.servers.server.url
+          if ($url -notmatch '^srt://\d+\.\d+\.\d+\.\d+:9000$') { Write-Host "::error::unexpected url in config: $url"; exit 1 }
+          if (-not (Get-NetFirewallRule -DisplayName 'AirFeed SRT 9000' -ErrorAction SilentlyContinue)) { Write-Host '::error::firewall rule missing'; exit 1 }
+          exit 0
+
+      - name: Quick guided test with a synthetic SRT stream
+        shell: powershell
+        run: |
+          $test = Start-Process powershell -PassThru -NoNewWindow -RedirectStandardOutput test.out -RedirectStandardError test.err -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File windows\airfeed.ps1 -Run test -Quick'
+          Start-Sleep 12
+          $sender = Start-Process ffmpeg -PassThru -NoNewWindow -RedirectStandardError sender.err -ArgumentList '-hide_banner -loglevel error -re -f lavfi -i testsrc2=s=1280x720:r=50 -t 60 -c:v libx264 -preset veryfast -tune zerolatency -b:v 4M -g 50 -pix_fmt yuv420p -f mpegts srt://127.0.0.1:9000'
+          $done = $test.WaitForExit(120000)
+          if (-not $sender.HasExited) { $sender.Kill() }
+          if (-not $done) { $test.Kill() }
+          $text = @(Get-Content test.out) + @('--- stderr ---') + @(Get-Content test.err -ErrorAction SilentlyContinue) + @(Get-ChildItem windows\captures -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length)" })
+          $text | ForEach-Object { Write-Host $_ }
+          Write-Host ("::notice::" + ($text -join '%0A'))
+          if (-not $done) { Write-Host '::error::guided test did not finish'; exit 1 }
+          $all = $text -join "`n"
+          if ($all -notmatch 'codec_name=h264.*width=1280') { Write-Host '::error::report does not show the stream'; exit 1 }
+          if ($all -notmatch 'Keyframe spacing in seconds: 1 1') { Write-Host '::error::keyframe spacing not reported as 1 s'; exit 1 }
+          if ($all -notmatch 'Position 4: start \d+ s, longest stall 0[.,]\d+ s, [1-9]') { Write-Host '::error::walk phases not reported with data'; exit 1 }
+          if ($all -notmatch 'Frames lost for good: 0 ') { Write-Host '::error::frames reported lost on loopback'; exit 1 }
+          exit 0
