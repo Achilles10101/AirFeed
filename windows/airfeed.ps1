@@ -234,7 +234,10 @@ function Wait-Phase($seconds, $shots) {
     while ($true) {
         $now = $script:Watch.Elapsed.TotalSeconds
         [System.Windows.Forms.Application]::DoEvents()
-        if ($script:ClockLabel) { $script:ClockLabel.Text = '{0:00.000}' -f ($now % 100) }
+        if ($script:ClockForm) {
+            $script:ClockText = '{0:00.000}' -f ($now % 100)
+            $script:ClockForm.Refresh()
+        }
         if ($script:Relay -and $now -ge $nextSample) {
             $nextSample = $now + 0.25
             if ($script:Relay.HasExited -and $now -ge $script:RelayAt + 2) {
@@ -292,14 +295,17 @@ function Show-Clock($bounds) {
     $form.Size = New-Object System.Drawing.Size 900, 320
     $form.TopMost = $true
     $form.BackColor = 'Black'
-    $label = New-Object System.Windows.Forms.Label
-    $label.Dock = 'Fill'
-    $label.TextAlign = 'MiddleCenter'
-    $label.ForeColor = 'White'
-    $label.Font = New-Object System.Drawing.Font 'Consolas', 110, ([System.Drawing.FontStyle]::Bold)
-    $form.Controls.Add($label)
+    # Drawn by hand and redrawn at once on every change. A Label holding the same text stayed
+    # blank, on the real laptop and on the test machine. Double buffering stops flicker.
+    $form.GetType().GetProperty('DoubleBuffered', [Reflection.BindingFlags]'NonPublic,Instance').SetValue($form, $true, $null)
+    $script:ClockFont = New-Object System.Drawing.Font 'Consolas', 110, ([System.Drawing.FontStyle]::Bold)
+    $form.Add_Paint({
+        param($sender, $e)
+        $script:ClockPaints++
+        $e.Graphics.DrawString($script:ClockText, $script:ClockFont, [System.Drawing.Brushes]::White, 20, 20)
+    })
     $form.Show()
-    $script:ClockLabel = $label
+    $script:ClockForm = $form
     return $form
 }
 
@@ -328,7 +334,7 @@ function Invoke-Test {
     $report  = Join-Path $Captures "report-$($script:Stamp).txt"
     $playLog = Join-Path $Captures "player-$($script:Stamp).log"
     $script:Watch = [Diagnostics.Stopwatch]::StartNew()
-    $script:ClockLabel = $script:Relay = $player = $null
+    $script:ClockForm = $script:Relay = $player = $null
     $script:Parts = @()
     $script:Stalls = @()
     $script:Drops = $script:LastSize = $script:LastGrow = $script:ShotNo = 0
@@ -376,10 +382,9 @@ Waiting up to $([int]($ConnectSeconds / 60)) minutes. Ctrl-C stops the test.
         $clock = Show-Clock $main.Bounds
         Say "Point the iPhone at the clock on the laptop and hold it still for $ClockSeconds seconds."
         $clockBytes = Wait-Phase $ClockSeconds @(($ClockSeconds * 0.5), ($ClockSeconds * 0.7), ($ClockSeconds * 0.9))
-        $l = $script:ClockLabel
-        Write-Host "clock debug: text='$($l.Text)' size=$($l.Size) visible=$($l.Visible) font=$($l.Font) fore=$($l.ForeColor) back=$($l.BackColor) truthy=$([bool]$l) type=$($l.GetType().FullName) compat=$($l.UseCompatibleTextRendering) form=$($clock.GetType().FullName) client=$($clock.ClientSize) controls=$($clock.Controls.Count)"
+        Write-Host "clock debug: painted $($script:ClockPaints) times, last text '$($script:ClockText)'"
         $clock.Close()
-        $script:ClockLabel = $null
+        $script:ClockForm = $null
 
         # 4. Free walk
         Say 'Walk around with the iPhone and keep filming.'
