@@ -79,6 +79,21 @@ Verified by an automated check on a GitHub Windows machine with a synthetic stre
 
 Options, from a command prompt: `airfeed.exe -port 9000 -latency 120 -hold 500 -display 2`. `-latency` is the SRT buffer in ms, `-hold` is how long the last good frame stays before black, `-display 0` gives a window instead of full screen.
 
+### Compare latency: Larix Broadcaster against Blackmagic Camera
+
+Same receiver, same clock, one app after the other. Larix's menu names below are from memory of the app and Softvelum's pages and may differ slightly. The free version streams 30 minutes, then 30 more with an overlay, then stops; HEVC needs the paid version.
+
+1. On the laptop open `experiments\clock.html` (from the unzipped repository) in a browser on the main screen. Start `airfeed.exe`; note the laptop address the test rig printed.
+2. Install Larix Broadcaster from the App Store and allow camera, microphone and local network access.
+3. Gear icon, Connections, New connection: Name `AirFeed`, URL `srt://<laptop address>:9000`, Mode `Video only`, SRT sender mode `Caller` (also called Push), latency `120`, everything else empty. Save, and tick the connection so it is the active one.
+4. Gear icon, Video: back camera, 1920 x 1080, the same frame rate as the Blackmagic run, bitrate 8000 kbps, keyframe every 1 s, H.264, adaptive bitrate off.
+5. Press the record button. The receiver console prints `camera connected, SRT buffer N ms`. Note N.
+6. Point the iPhone at the clock so the second display shows the filmed clock. Press Win+PrtScn three times a few seconds apart (it captures both displays into Pictures\Screenshots). Latency is the clock on the main screen minus the filmed clock on the second display.
+7. Stop Larix. Start the stream in Blackmagic Camera and repeat steps 5 and 6.
+8. Optional, to see how low Larix goes: stop the receiver, start it as `airfeed.exe -latency 60`, set latency 60 in the Larix connection and repeat.
+
+Send back the screenshots and the two `SRT buffer` numbers. None of this has been run; the clock page was only used on the Mac.
+
 ### Build and check it yourself
 
 On the Mac: `cd receiver && make test`. This builds the receiver and runs `test.sh`, which sends a known clip through real SRT with simulated loss and compares every frame that would be shown with the original. It takes about two minutes. It needs Homebrew `ffmpeg`, `srt` and `sdl3`. The Windows build is made by `.github/workflows/receiver.yml` with MSYS2.
