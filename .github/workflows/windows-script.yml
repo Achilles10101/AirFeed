@@ -31,6 +31,8 @@ jobs:
           if (-not (Test-Path windows\airfeed-windows.xml)) { Write-Host '::error::setup did not write the iPhone config'; exit 1 }
           $url = ([xml](Get-Content windows\airfeed-windows.xml)).streaming.service.servers.server.url
           if ($url -notmatch '^srt://\d+\.\d+\.\d+\.\d+:9000$') { Write-Host "::error::unexpected url in config: $url"; exit 1 }
+          $names = ([xml](Get-Content windows\airfeed-windows.xml)).streaming.service.profiles.profile.name -join ','
+          if ($names -ne 'Streaming High,Streaming Medium,Streaming Low') { Write-Host "::error::unexpected profiles in config: $names"; exit 1 }
           if (-not (Get-NetFirewallRule -DisplayName 'AirFeed SRT 9000' -ErrorAction SilentlyContinue)) { Write-Host '::error::firewall rule missing'; exit 1 }
           exit 0
 
@@ -50,6 +52,8 @@ jobs:
           $all = $text -join "`n"
           if ($all -notmatch 'codec_name=h264.*width=1280') { Write-Host '::error::report does not show the stream'; exit 1 }
           if ($all -notmatch 'Keyframe spacing in seconds: 1 1') { Write-Host '::error::keyframe spacing not reported as 1 s'; exit 1 }
-          if ($all -notmatch 'Position 4: start \d+ s, longest stall 0[.,]\d+ s, [1-9]') { Write-Host '::error::walk phases not reported with data'; exit 1 }
+          if ($all -notmatch 'Walk: 3 s, [1-9]') { Write-Host '::error::walk not reported with data'; exit 1 }
+          if ($all -notmatch "listened for again: 0 times") { Write-Host '::error::connection reported broken on loopback'; exit 1 }
+          if ($all -notmatch "laptop's clock:\n  none") { Write-Host '::error::stalls reported on loopback'; exit 1 }
           if ($all -notmatch 'Frames lost for good: 0 ') { Write-Host '::error::frames reported lost on loopback'; exit 1 }
           exit 0

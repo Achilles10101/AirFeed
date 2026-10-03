@@ -1,31 +1,58 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!-- Experiment 1: Blackmagic Camera app, custom SRT service pointing at the Mac.
-     Schema taken from an unofficial blog (glyph.sh), not from Blackmagic. If the app
-     rejects this file, that is a finding: tell me what it says.
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Blackmagic Camera app, custom SRT service pointing at the Mac. Format from Blackmagic's
+     "Streaming XML File Format" (January 2026), which is written for ATEMs and cameras, not
+     the phone app. The app offers only the qualities Streaming High, Medium and Low. The
+     bitrates differ from the app's defaults so a capture shows whether the app used this file.
      Change the address if capture.sh prints a different one. -->
 <streaming>
     <service>
         <name>AirFeed Mac</name>
+        <key>airfeed</key>
         <servers>
             <server>
                 <name>Mac</name>
                 <url>srt://192.168.0.207:9000</url>
             </server>
         </servers>
-        <profiles>
+        <profiles default="Streaming High">
             <profile>
-                <name>AirFeed low latency</name>
+                <name>Streaming High</name>
                 <low-latency/>
-                <config resolution="HD">
-                    <bitrate>6000000</bitrate>
+                <config resolution="1080p" fps="30" codec="H264">
+                    <bitrate>8000000</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+                <config resolution="1080p" fps="60" codec="H264">
+                    <bitrate>8000000</bitrate>
                     <audio-bitrate>128000</audio-bitrate>
                     <keyframe-interval>2</keyframe-interval>
                 </config>
             </profile>
             <profile>
-                <name>AirFeed standard</name>
-                <config resolution="HD">
-                    <bitrate>6000000</bitrate>
+                <name>Streaming Medium</name>
+                <low-latency/>
+                <config resolution="1080p" fps="30" codec="H264">
+                    <bitrate>5000000</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+                <config resolution="1080p" fps="60" codec="H264">
+                    <bitrate>5000000</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+            </profile>
+            <profile>
+                <name>Streaming Low</name>
+                <low-latency/>
+                <config resolution="1080p" fps="30" codec="H264">
+                    <bitrate>2500000</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+                <config resolution="1080p" fps="60" codec="H264">
+                    <bitrate>2500000</bitrate>
                     <audio-bitrate>128000</audio-bitrate>
                     <keyframe-interval>2</keyframe-interval>
                 </config>

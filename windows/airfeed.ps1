@@ -1,5 +1,5 @@
-# AirFeed test rig for the Windows laptop: one setup step and one guided test of about
-# five minutes that covers every hardware experiment.
+# AirFeed test rig for the Windows laptop: one setup step and one guided test that covers
+# every hardware experiment.
 #
 # This is NOT the production receiver. It has no safety gate, so damaged frames and the
 # Windows desktop can reach the HDMI output. Do not put it on a live programme.
@@ -15,19 +15,16 @@ param(
 # Knobs
 $Port      = 9000      # UDP port the iPhone sends SRT to (the port after it is used on this laptop only)
 $LatencyMs = 120       # SRT receive buffer. Raise if the picture breaks up, lower to cut delay.
-$Bitrate   = 6000000   # video bitrate written into the iPhone config
+# Video bitrates written into the iPhone config, one per quality the app offers. They differ
+# from the app's own defaults, so the bitrate in the report shows whether the app used the file.
+$Bitrates  = [ordered]@{ High = 8000000; Medium = 5000000; Low = 2500000 }
 $Probe     = 32768     # bytes ffplay reads before it starts. If the video window never opens, try 1000000.
-$PatternSeconds  = 15
-$ClockSeconds    = 25
-$PositionSeconds = 45
-$ReturnSeconds   = 15
-$Positions = @(
-    'close to the router',
-    'the middle of the hall',
-    'the far end of the hall',
-    'the worst spot you would ever film from'
-)
-if ($Quick) { $PatternSeconds = $ClockSeconds = $PositionSeconds = $ReturnSeconds = 3 }
+$PatternSeconds = 15
+$ClockSeconds   = 25
+$WalkSeconds    = 0     # length of the walk; 0 = until Enter is pressed
+$ConnectSeconds = 600   # how long to wait for the iPhone before giving up
+$StallSeconds   = 0.5   # no video arriving for this long counts as a stall
+if ($Quick) { $PatternSeconds = $ClockSeconds = $WalkSeconds = 3; $ConnectSeconds = 60 }
 
 $Captures = Join-Path $PSScriptRoot 'captures'
 $Config   = Join-Path $PSScriptRoot 'airfeed-windows.xml'
@@ -110,36 +107,41 @@ function Invoke-Setup {
         Write-Host 'This is a WiFi connection. The plan is Ethernet for the laptop, so only the iPhone is wireless.' -ForegroundColor Yellow
     }
 
-    # Schema from an unofficial blog (glyph.sh), not from Blackmagic. If the app rejects it, that is a finding.
+    # Format from Blackmagic's "Streaming XML File Format" (January 2026), which is written for
+    # ATEMs and cameras, not the phone app. The app offers only the qualities Streaming High,
+    # Medium and Low, so the profiles carry those names. fps 30 covers every rate up to 30.
+    $profiles = foreach ($q in $Bitrates.Keys) {
+        $configs = foreach ($fps in 30, 60) {
+@"
+                <config resolution="1080p" fps="$fps" codec="H264">
+                    <bitrate>$($Bitrates[$q])</bitrate>
+                    <audio-bitrate>128000</audio-bitrate>
+                    <keyframe-interval>2</keyframe-interval>
+                </config>
+"@
+        }
+@"
+            <profile>
+                <name>Streaming $q</name>
+                <low-latency/>
+$($configs -join "`n")
+            </profile>
+"@
+    }
     $xml = @"
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <streaming>
     <service>
         <name>AirFeed Windows</name>
+        <key>airfeed</key>
         <servers>
             <server>
                 <name>Laptop</name>
                 <url>srt://${ip}:${Port}</url>
             </server>
         </servers>
-        <profiles>
-            <profile>
-                <name>AirFeed low latency</name>
-                <low-latency/>
-                <config resolution="HD">
-                    <bitrate>$Bitrate</bitrate>
-                    <audio-bitrate>128000</audio-bitrate>
-                    <keyframe-interval>2</keyframe-interval>
-                </config>
-            </profile>
-            <profile>
-                <name>AirFeed standard</name>
-                <config resolution="HD">
-                    <bitrate>$Bitrate</bitrate>
-                    <audio-bitrate>128000</audio-bitrate>
-                    <keyframe-interval>2</keyframe-interval>
-                </config>
-            </profile>
+        <profiles default="Streaming High">
+$($profiles -join "`n")
         </profiles>
     </service>
 </streaming>
@@ -155,22 +157,20 @@ It points the iPhone at srt://${ip}:${Port}. Run setup again if the laptop's add
 Before the guided test
   1. Get that file onto the iPhone (email it to yourself, or use iCloud Drive or OneDrive)
      and save it in the Files app.
-  2. In Blackmagic Camera (3.2 or later): settings, streaming, import the file as a custom
-     service. These menu names are unverified.
-  3. Choose service "AirFeed Windows", profile "AirFeed low latency". Set the frame rate
-     to the ATEM's video standard. Do not start streaming yet.
-  4. Connect the laptop's HDMI output to an ATEM input and put that input on programme.
+  2. In Blackmagic Camera (3.2 or later) import it as a custom streaming service. If the app
+     refuses this file, keep the service imported earlier and say what the app reported.
+  3. Choose service "AirFeed Windows", quality "Streaming High".
+  4. Recording settings in the app: 1080p, frame rate equal to the ATEM's video standard,
+     codec H.264, colour space Rec.709. Not 4K, Apple Log or HDR.
+  5. Do not start streaming yet. Nothing listens until the guided test asks for the stream,
+     so an earlier start fails.
+  6. Connect the laptop's HDMI output to an ATEM input and put that input on programme.
      In Windows display settings choose Extend, 1920 x 1080, scale 100%, refresh rate equal
      to the ATEM's video standard, HDR and Night light off.
-  5. Turn the laptop's volume up: the test tells you out loud when to move.
 "@
 }
 
-function Say($text) {
-    Write-Host "`n>>> $text" -ForegroundColor Cyan
-    try { [console]::Beep(880, 250) } catch { }
-    if ($script:Voice) { try { $script:Voice.SpeakAsync($text) | Out-Null } catch { } }
-}
+function Say($text) { Write-Host "`n>>> $text" -ForegroundColor Cyan }
 
 function Get-Size($path) {
     try {
@@ -196,36 +196,67 @@ function Save-Screenshot($path) {
     }
 }
 
-# Waits while keeping the windows alive, the clock running and an eye on the capture file.
-# Returns the longest time the file did not grow (a stall) and the bytes received.
-function Wait-Phase($seconds, $file, $shots) {
-    $start = $script:Watch.Elapsed.TotalSeconds
-    $size0 = $lastSize = Get-Size $file
-    $lastGrow = $nextSample = $start
-    $longest = 0.0
+# Bytes captured so far, over every capture file of this test.
+function Get-Received {
+    $n = 0
+    foreach ($f in $script:Parts) { $n += Get-Size $f }
+    return $n
+}
+
+# One SRT listener that saves the stream to disk and passes it on to the player. ffmpeg exits
+# when the iPhone's connection breaks, so each call starts a new capture file, unless the last
+# one is still empty.
+function Start-Relay {
+    if (-not $script:Parts -or (Get-Size $script:Parts[-1]) -gt 0) {
+        $script:Parts += Join-Path $Captures ("capture-{0}-{1}.ts" -f $script:Stamp, ($script:Parts.Count + 1))
+    }
+    $file = $script:Parts[-1]
+    $script:RelayAt = $script:Watch.Elapsed.TotalSeconds
+    $script:Relay = Start-Process ffmpeg -PassThru -NoNewWindow -RedirectStandardError "$file.log" -ArgumentList (
+        "-hide_banner -loglevel warning -nostdin -y -fflags nobuffer -i `"$SrtUrl`" " +
+        "-map 0:v -c copy -flush_packets 1 -f mpegts `"$file`" " +
+        "-map 0:v -c copy -flush_packets 1 -f mpegts `"${LocalUrl}?pkt_size=1316`"")
+}
+
+function Add-Stall($seconds, $note) {
+    if ($seconds -ge $StallSeconds) {
+        $script:Stalls += ("{0:HH:mm:ss}  {1:n1} s{2}" -f (Get-Date).AddSeconds(-$seconds), $seconds, $note)
+    }
+}
+
+# Waits while keeping the windows alive and the clock running. Once the listener is up it
+# also starts it again after a broken connection and notes every stall, with its time of day.
+# $seconds 0 waits for Enter. Returns the bytes received meanwhile.
+function Wait-Phase($seconds, $shots) {
+    $start = $nextSample = $script:Watch.Elapsed.TotalSeconds
+    $size0 = Get-Received
     $shots = @($shots)
     while ($true) {
         $now = $script:Watch.Elapsed.TotalSeconds
         [System.Windows.Forms.Application]::DoEvents()
         if ($script:ClockLabel) { $script:ClockLabel.Text = '{0:00.000}' -f ($now % 100) }
-        if ($file -and $now -ge $nextSample) {
+        if ($script:Relay -and $now -ge $nextSample) {
             $nextSample = $now + 0.25
-            $size = Get-Size $file
-            if ($size -gt $lastSize) {
-                $longest = [math]::Max($longest, $now - $lastGrow)
-                $lastSize = $size
-                $lastGrow = $now
+            if ($script:Relay.HasExited -and $now -ge $script:RelayAt + 2) {
+                if ($script:LastSize) { $script:Drops++ }
+                Start-Relay
+            }
+            $size = Get-Received
+            if ($size -gt $script:LastSize) {
+                if ($script:LastSize) { Add-Stall ($now - $script:LastGrow) }
+                $script:LastSize = $size
+                $script:LastGrow = $now
             }
         }
         if ($shots -and $now -ge $start + $shots[0]) {
             Save-Screenshot (Join-Path $Captures ("latency-{0}-{1}.png" -f $script:Stamp, (++$script:ShotNo)))
             $shots = @($shots | Select-Object -Skip 1)
         }
-        if ($now -ge $start + $seconds) { break }
+        if ($seconds) { if ($now -ge $start + $seconds) { break } }
+        elseif ([Console]::KeyAvailable -and [Console]::ReadKey($true).Key -eq 'Enter') { break }
         Start-Sleep -Milliseconds 10
     }
-    $longest = [math]::Max($longest, $now - $lastGrow)
-    return [pscustomobject]@{ Stall = $longest; Bytes = $lastSize - $size0 }
+    return (Get-Received) - $size0
 }
 
 function Show-Pattern($bounds) {
@@ -277,10 +308,12 @@ function Invoke-Test {
     if (-not (Test-Ffmpeg)) { Write-Host 'Run setup first.' -ForegroundColor Red; return }
     New-Item -ItemType Directory -Force $Captures | Out-Null
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-    try {
-        Add-Type -AssemblyName System.Speech
-        $script:Voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
-    } catch { $script:Voice = $null }
+
+    # A run that was closed half way leaves its ffmpeg holding the port, and the next stream
+    # would go to that one.
+    Get-CimInstance Win32_Process -Filter "Name = 'ffmpeg.exe' OR Name = 'ffplay.exe'" |
+        Where-Object { $_.CommandLine -match ":$Port\?|:$($Port + 1)\b" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
     $screens = [System.Windows.Forms.Screen]::AllScreens
     $main = $screens | Where-Object { $_.Primary } | Select-Object -First 1
@@ -292,88 +325,96 @@ function Invoke-Test {
     Write-Host ("ATEM display: {0}  {1} x {2}" -f $atem.DeviceName, $atem.Bounds.Width, $atem.Bounds.Height)
 
     $script:Stamp = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
-    $file     = Join-Path $Captures "capture-$($script:Stamp).ts"
-    $report   = Join-Path $Captures "report-$($script:Stamp).txt"
-    $relayLog = Join-Path $Captures "relay-$($script:Stamp).log"
-    $playLog  = Join-Path $Captures "player-$($script:Stamp).log"
+    $report  = Join-Path $Captures "report-$($script:Stamp).txt"
+    $playLog = Join-Path $Captures "player-$($script:Stamp).log"
     $script:Watch = [Diagnostics.Stopwatch]::StartNew()
-    $script:ClockLabel = $null
-    $total = $PatternSeconds + $ClockSeconds + $PositionSeconds * $Positions.Count + $ReturnSeconds
-    Write-Host ("The test runs about {0:n0} minutes once the iPhone connects." -f ($total / 60))
+    $script:ClockLabel = $script:Relay = $player = $null
+    $script:Parts = @()
+    $script:Stalls = @()
+    $script:Drops = $script:LastSize = $script:LastGrow = $script:ShotNo = 0
 
     if (-not $Quick) { Read-Host 'Start recording on the ATEM, then press Enter' | Out-Null }
 
-    # 1. Test pattern on the ATEM output
-    Say 'Test pattern.'
-    $pattern = Show-Pattern $atem.Bounds
-    Wait-Phase $PatternSeconds $null | Out-Null
-    $pattern.Close()
+    try {
+        # 1. Test pattern on the ATEM output
+        Say "Test pattern on the ATEM output for $PatternSeconds seconds."
+        $pattern = Show-Pattern $atem.Bounds
+        Wait-Phase $PatternSeconds | Out-Null
+        $pattern.Close()
 
-    # 2. Receive the iPhone: one SRT listener, saved to disk and passed on to the player
-    $player = Start-Process ffplay -PassThru -NoNewWindow -RedirectStandardError $playLog -ArgumentList (
-        "-hide_banner -loglevel warning -an -sync ext -fflags nobuffer -flags low_delay -framedrop " +
-        "-probesize $Probe -analyzeduration 0 -fs -left $($atem.Bounds.X + 100) -top $($atem.Bounds.Y + 100) " +
-        "-window_title AirFeed `"$LocalUrl`"")
-    $relay = Start-Process ffmpeg -PassThru -NoNewWindow -RedirectStandardError $relayLog -ArgumentList (
-        "-hide_banner -loglevel warning -nostdin -fflags nobuffer -i `"$SrtUrl`" " +
-        "-map 0:v -c copy -flush_packets 1 -f mpegts `"$file`" " +
-        "-map 0:v -c copy -flush_packets 1 -f mpegts `"${LocalUrl}?pkt_size=1316`"")
-    Say 'Start the stream on the iPhone now.'
-    while ((Get-Size $file) -eq 0) {
-        if ($relay.HasExited -or $script:Watch.Elapsed.TotalSeconds -gt 300) {
-            Write-Host "No stream arrived. See $relayLog" -ForegroundColor Red
-            if (-not $player.HasExited) { $player.Kill() }
-            if (-not $relay.HasExited) { $relay.Kill() }
-            return
+        # 2. Receive the iPhone
+        $player = Start-Process ffplay -PassThru -NoNewWindow -RedirectStandardError $playLog -ArgumentList (
+            "-hide_banner -loglevel warning -an -sync ext -fflags nobuffer -flags low_delay -framedrop " +
+            "-probesize $Probe -analyzeduration 0 -fs -left $($atem.Bounds.X + 100) -top $($atem.Bounds.Y + 100) " +
+            "-window_title AirFeed `"$LocalUrl`"")
+        Start-Relay
+        $deadline = $script:Watch.Elapsed.TotalSeconds + $ConnectSeconds
+        $lan = @(Get-LanAddress)
+        Say 'Start the stream on the iPhone now.'
+        Write-Host ('Listening on ' + (($lan | ForEach-Object { "srt://$($_.Address):$Port" }) -join ' and '))
+        if ((Test-Path $Config) -and -not ($lan | Where-Object { (Get-Content $Config -Raw) -match "srt://$([regex]::Escape($_.Address)):" })) {
+            Write-Host 'The iPhone config file points at another address. Run setup again and import the new file.' -ForegroundColor Red
         }
-        Wait-Phase 0.5 $null | Out-Null
+        Write-Host @"
+If Blackmagic Camera cannot connect:
+  - iPhone Settings > Privacy & Security > Local Network: Blackmagic Camera must be switched on.
+  - The iPhone must be on this network's WiFi, not a guest network and not mobile data.
+  - The server address the app shows must be the address above.
+  - If Windows asked whether to allow ffmpeg, the answer must have been Allow.
+Waiting up to $([int]($ConnectSeconds / 60)) minutes. Ctrl-C stops the test.
+"@
+        while ((Get-Received) -eq 0) {
+            if ($script:Watch.Elapsed.TotalSeconds -gt $deadline) {
+                Write-Host "No stream arrived. Note what the app reported, and see $($script:Parts[-1]).log" -ForegroundColor Red
+                return
+            }
+            Wait-Phase 0.5 | Out-Null
+        }
+        Write-Host 'The iPhone is connected.' -ForegroundColor Green
+
+        # 3. Latency: the iPhone films the clock, screenshots catch the clock and its filmed copy
+        $clock = Show-Clock $main.Bounds
+        Say "Point the iPhone at the clock on the laptop and hold it still for $ClockSeconds seconds."
+        $clockBytes = Wait-Phase $ClockSeconds @(($ClockSeconds * 0.5), ($ClockSeconds * 0.7), ($ClockSeconds * 0.9))
+        $clock.Close()
+        $script:ClockLabel = $null
+
+        # 4. Free walk
+        Say 'Walk around with the iPhone and keep filming.'
+        Write-Host 'Every stall is logged with the time of day, so note the time on the phone in spots you care about.'
+        if (-not $WalkSeconds) {
+            Write-Host 'Back at the laptop: press Enter here first, then stop the stream on the iPhone.'
+            while ([Console]::KeyAvailable) { [Console]::ReadKey($true) | Out-Null }
+        }
+        $walkStart = $script:Watch.Elapsed.TotalSeconds
+        $walkBytes = Wait-Phase $WalkSeconds
+        $walkTime = $script:Watch.Elapsed.TotalSeconds - $walkStart
+        Add-Stall ($script:Watch.Elapsed.TotalSeconds - $script:LastGrow) ', and still no video when the test ended'
+        Say 'Test finished. Stop the stream on the iPhone and stop the ATEM recording.'
+        $playerDied = $player.HasExited
+    } finally {
+        foreach ($proc in $player, $script:Relay) { if ($proc -and -not $proc.HasExited) { $proc.Kill() } }
     }
-    $connected = $script:Watch.Elapsed.TotalSeconds
-    $phases = @()
-
-    # 3. Latency: the iPhone films the clock, screenshots catch the clock and its filmed copy
-    $clock = Show-Clock $main.Bounds
-    Say 'Point the iPhone at the clock on the laptop and hold it still.'
-    $r = Wait-Phase $ClockSeconds $file @(($ClockSeconds * 0.5), ($ClockSeconds * 0.7), ($ClockSeconds * 0.9))
-    $phases += [pscustomobject]@{ Name = 'Clock'; Start = 0; Seconds = $ClockSeconds; Stall = $r.Stall; Bytes = $r.Bytes }
-    $clock.Close()
-    $script:ClockLabel = $null
-
-    # 4. Walk test
-    for ($i = 0; $i -lt $Positions.Count; $i++) {
-        $at = $script:Watch.Elapsed.TotalSeconds - $connected
-        Say ("Walk to position {0}: {1}. Keep filming." -f ($i + 1), $Positions[$i])
-        $r = Wait-Phase $PositionSeconds $file
-        $phases += [pscustomobject]@{ Name = "Position $($i + 1)"; Start = $at; Seconds = $PositionSeconds; Stall = $r.Stall; Bytes = $r.Bytes }
-    }
-    $at = $script:Watch.Elapsed.TotalSeconds - $connected
-    Say 'Come back to the laptop.'
-    $r = Wait-Phase $ReturnSeconds $file
-    $phases += [pscustomobject]@{ Name = 'Return'; Start = $at; Seconds = $ReturnSeconds; Stall = $r.Stall; Bytes = $r.Bytes }
-    Say 'Test finished. Stop the stream on the iPhone and stop the ATEM recording.'
-
-    $playerDied = $player.HasExited
-    if (-not $player.HasExited) { $player.Kill() }
-    if (-not $relay.HasExited) { $relay.Kill() }
-    $relay.WaitForExit(5000) | Out-Null
+    $script:Relay.WaitForExit(5000) | Out-Null
 
     # 5. Report
+    $parts = @($script:Parts | Where-Object { (Get-Size $_) -gt 0 })
     $out = @("AirFeed guided test $($script:Stamp)", "SRT receive buffer: $LatencyMs ms", '', 'Streams:')
     # MPEG-TS lists each stream twice (once under its programme), hence -Unique.
-    $out += & ffprobe -v error -show_entries 'stream=index,codec_type,codec_name,profile,width,height,pix_fmt,color_range,avg_frame_rate,has_b_frames' -of 'compact=p=0' $file |
+    $out += & ffprobe -v error -show_entries 'stream=index,codec_type,codec_name,profile,width,height,pix_fmt,color_range,avg_frame_rate,has_b_frames' -of 'compact=p=0' $parts[0] |
         Select-Object -Unique | ForEach-Object { "  $_" }
 
-    $packets = @(& ffprobe -v error -select_streams v:0 -show_entries 'packet=pts_time,flags' -of 'csv=p=0' $file)
-    $times = @($packets | ForEach-Object { [double]($_ -split ',')[0] } | Sort-Object)
-    $keys  = @($packets | Where-Object { $_ -match ',K' } | ForEach-Object { [double]($_ -split ',')[0] })
-    if ($keys.Count -gt 1) {
-        $gaps = for ($i = 1; $i -lt [math]::Min($keys.Count, 9); $i++) { [math]::Round($keys[$i] - $keys[$i - 1], 2) }
-        $out += "Keyframe spacing in seconds: $($gaps -join ' ')"
-    }
-    if ($times.Count -gt 10) {
+    for ($p = 0; $p -lt $parts.Count; $p++) {
+        $packets = @(& ffprobe -v error -select_streams v:0 -show_entries 'packet=pts_time,flags' -of 'csv=p=0' $parts[$p])
+        $times = @($packets | ForEach-Object { [double]($_ -split ',')[0] } | Sort-Object)
+        $keys  = @($packets | Where-Object { $_ -match ',K' } | ForEach-Object { [double]($_ -split ',')[0] })
+        if ($p -eq 0 -and $keys.Count -gt 1) {
+            $gaps = for ($i = 1; $i -lt [math]::Min($keys.Count, 9); $i++) { [math]::Round($keys[$i] - $keys[$i - 1], 2) }
+            $out += "Keyframe spacing in seconds: $($gaps -join ' ')"
+        }
+        if ($times.Count -le 10) { continue }
         $deltas = for ($i = 1; $i -lt $times.Count; $i++) { $times[$i] - $times[$i - 1] }
         $frame = ($deltas | Sort-Object)[[int]($deltas.Count / 2)]
-        $out += ("Frames received: {0}, frame interval {1:n1} ms" -f $times.Count, ($frame * 1000))
         $lost = 0
         $holes = @()
         for ($i = 1; $i -lt $times.Count; $i++) {
@@ -383,14 +424,17 @@ function Invoke-Test {
                 $holes += ("{0:n0}s ({1:n0} ms)" -f ($times[$i - 1] - $times[0]), ($d * 1000))
             }
         }
-        $out += "Frames lost for good: $lost in $($holes.Count) holes"
-        if ($holes) { $out += "  holes at, seconds into the stream: $(($holes | Select-Object -First 20) -join ', ')" }
+        $out += ("Capture file {0}: {1} frames, frame interval {2:n1} ms. Frames lost for good: {3} in {4} holes" -f ($p + 1), $times.Count, ($frame * 1000), $lost, $holes.Count)
+        if ($holes) { $out += "  holes at, seconds into this file: $(($holes | Select-Object -First 20) -join ', ')" }
     }
 
-    $out += @('', 'Phases (start is seconds into the stream; a stall is the longest time no video arrived):')
-    foreach ($p in $phases) {
-        $out += ("  {0}: start {1:n0} s, longest stall {2:n2} s, {3:n2} Mbit/s" -f $p.Name, $p.Start, $p.Stall, ($p.Bytes * 8 / $p.Seconds / 1e6))
-    }
+    $out += ''
+    $out += ("Clock: {0:n0} s, {1:n2} Mbit/s" -f $ClockSeconds, ($clockBytes * 8 / $ClockSeconds / 1e6))
+    $out += ("Walk: {0:n0} s, {1:n2} Mbit/s" -f $walkTime, ($walkBytes * 8 / $walkTime / 1e6))
+    $out += "The iPhone config asks for $(($Bitrates.Values | ForEach-Object { $_ / 1e6 }) -join ' / ') Mbit/s as $($Bitrates.Keys -join ' / ')."
+    $out += "Connection broken and listened for again: $($script:Drops) times"
+    $out += "Stalls (no video arriving for $StallSeconds s or more), start by this laptop's clock:"
+    if ($script:Stalls) { $out += $script:Stalls | ForEach-Object { "  $_" } } else { $out += '  none' }
     $complaints = @(Get-Content $playLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'error|corrupt|conceal|missing|invalid' }).Count
     $out += @('', "Player complaints (lines in the log about damaged video): $complaints")
     if ($playerDied) { $out += 'The player window closed before the end of the test.' }
@@ -401,7 +445,7 @@ function Invoke-Test {
 
 Send back for analysis, all from $Captures :
   report-$($script:Stamp).txt, the three latency-$($script:Stamp)-*.png screenshots,
-  and the ATEM recording. Keep capture-$($script:Stamp).ts in case it is needed.
+  and the ATEM recording. Keep the capture-$($script:Stamp)-*.ts files in case they are needed.
 "@
 }
 
@@ -420,7 +464,7 @@ while ($true) {
 
 AirFeed test rig. Test use only, not for a live programme.
   1  Setup (once): ffmpeg, firewall port, iPhone config file
-  2  Guided test, about five minutes
+  2  Guided test: pattern, latency clock, then a free walk
   q  Quit
 "@
     $choice = Read-Host 'Choose'
