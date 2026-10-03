@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 PY=${PYTHON:-python3}
 tmp=$(mktemp -d)
-trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'kill $(jobs -p) 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 make -s airfeed
 enc="-f lavfi -i testsrc2=s=1280x720:r=50 -t 20 -pix_fmt yuv420p -b:v 6M -maxrate 6M -bufsize 1M -g 50"
