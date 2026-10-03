@@ -2,9 +2,9 @@
 
 iPhone as a wireless camera into an ATEM Mini Pro ISO: iPhone over WiFi (SRT) to a Windows laptop, laptop over HDMI to the ATEM. Software only.
 
-**Status: experiments.** There is no product yet. The steps below run the experiments that decide the design. Decisions and findings are in `CLAUDE.md`.
+**Status: base receiver built, hardware tests pending.** The receiver in `receiver/` is the first real piece. The camera side is still undecided and waits for the hardware test results. Decisions and findings are in `CLAUDE.md`.
 
-What is verified so far, all on the Mac with a synthetic stream: the capture script receives SRT, shows it and saves it; the safety gate idea works (see `CLAUDE.md`). Nothing has been tested with a real iPhone, the Windows laptop or the ATEM.
+Nothing has been tested with a real iPhone, the Windows laptop or the ATEM. Each section below says what was verified and where.
 
 ## Mac (done)
 
@@ -64,3 +64,37 @@ If the app cannot connect: on the iPhone, Settings, Privacy & Security, Local Ne
 Phase lengths, port, SRT buffer, bitrates and the stall threshold are knobs at the top of the script. `airfeed.cmd -Run test -Quick` does a dry run with 3 second phases.
 
 Verified by an automated check on a GitHub Windows machine with a synthetic stream: the script parses, setup runs, and the guided test receives SRT and produces its report. Not verified anywhere: the real laptop, the iPhone app accepting the config file, the pattern and video actually appearing on the ATEM display, restarting the listener after a broken connection, and the winget install.
+
+## Windows laptop: the receiver
+
+`receiver/airfeed.c` is the receiver meant for live use: it listens for the camera's SRT stream and shows it full screen on the display that feeds the ATEM. A frame is shown only if all of it arrived and it decoded cleanly. After any loss it shows nothing new until the next keyframe: the last good frame is held for half a second, then the screen goes black.
+
+### Run it
+
+1. Do the setup in the section above once. It opens UDP port 9000 and writes the iPhone config; the receiver uses the same port.
+2. On https://github.com/Achilles10101/AirFeed/actions/workflows/receiver.yml open the newest run with a green tick and download the artifact `airfeed-receiver-windows` (you must be signed in to GitHub). Unzip it.
+3. With the ATEM display connected and set up as in the section above, double-click `airfeed.exe`. The second display goes black and a console window shows `waiting for the camera`.
+4. Start the stream in Blackmagic Camera. The console prints one status line per second: `LIVE` or `BLACK`, frames shown, frames withheld by the gate, and SRT's own loss counters.
+5. Press Q with the video window selected, or close the console, to stop.
+
+Options, from a command prompt: `airfeed.exe -port 9000 -latency 120 -hold 500 -display 2`. `-latency` is the SRT buffer in ms, `-hold` is how long the last good frame stays before black, `-display 0` gives a window instead of full screen.
+
+### Build and check it yourself
+
+On the Mac: `cd receiver && make test`. This builds the receiver and runs `test.sh`, which sends a known clip through real SRT with simulated loss and compares every frame that would be shown with the original. It takes about two minutes. It needs Homebrew `ffmpeg`, `srt` and `sdl3`. The Windows build is made by `.github/workflows/receiver.yml` with MSYS2.
+
+### What is verified
+
+On this Mac and on a GitHub Windows machine (the Windows build itself), with synthetic 720p50 H.264 and HEVC streams over real SRT on one machine: zero damaged frames shown in every run, with a clean link, 5% random loss and 1.5 s outages; the gate reopens after each loss; a clean link shows every frame. The same check reports damaged frames when the gate is switched off, so it can fail. On the Windows machine the bundle also started without the build tools present and showed 1080p50 video in a window through Direct3D 11.
+
+Not verified anywhere: the real laptop, full screen on a second display, what arrives at the ATEM over HDMI (colour range, refresh rate), the iPhone app's stream, real WiFi, latency, and running for hours. On the Mac the window was only seen behind another window, not inspected.
+
+The bundle is 84 files and 126 MB because it carries the whole MSYS2 FFmpeg package.
+
+### Known limits
+
+- One frame of delay is built in, because a frame is known to be complete only when the next one starts.
+- 8 bit 4:2:0 video only. 10 bit HEVC shows black and a message.
+- Software decoding.
+- Reopening the gate needs a real keyframe (H.264 IDR or HEVC IRAP). A camera app that never sends one after the start would stay black after the first loss.
+- The display is not locked to the camera's clock, so now and then a frame is shown twice or skipped.
